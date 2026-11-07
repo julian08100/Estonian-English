@@ -24,6 +24,7 @@
   #big.placeholder { color:var(--mut); font-weight:500; }
   #big.busy { opacity:.55; }
   #feed { display:flex; flex-direction:column-reverse; gap:8px; margin-top:8px; }
+  .item .et { color:var(--mut); font-size:13px; margin-top:3px; }
   .item { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:9px 12px; font-size:16px; }
   .bar { position:fixed; left:0; right:0; bottom:0; display:flex; justify-content:center;
     padding:12px 14px calc(env(safe-area-inset-bottom) + 12px);
@@ -151,14 +152,16 @@ function fitBig() {
   big.style.fontSize = lo + 'px';
 }
 let lastShown = '';
-function show(text) {
+let lastEt = '';
+function show(text, et) {
   if (lastShown) {
     const d = document.createElement('div');
     d.className = 'item'; d.textContent = lastShown;
+    if (lastEt) { const s = document.createElement('div'); s.className = 'et'; s.lang = 'et'; s.textContent = lastEt; d.appendChild(s); }
     feed.appendChild(d);
     while (feed.children.length > 30) feed.firstChild.remove();
   }
-  lastShown = text;
+  lastShown = text; lastEt = et || '';
   big.textContent = text;
   big.classList.remove('placeholder');
   fitBig();
@@ -203,17 +206,64 @@ function encodeWav(samples) {
   return new Blob([b], { type: 'audio/wav' });
 }
 
-/* ---------- Groq: Ests → Engels ---------- */
-const HALLUCINATIONS = /^(thank you( for watching)?|thanks for watching|subtitles by.*|please subscribe.*|you|bye\.?|\.+|\s*)$/i;
+/* ---------- Stap 1: Ests verstaan (Groq Whisper, taal vast op Ests) ---------- */
+const HALLU_ET = /^(aitäh( vaatamast)?\.?|tänan( vaatamast)?\.?|subtiitrid.*|tellige.*|\.+|\s*)$/i;
 const queue = [];
 let busy = false, lastReq = 0, pauseUntil = 0;
 const MIN_GAP = 3100; // max 20 verzoeken per minuut
 
 function enqueue(blob) {
   queue.push(blob);
-  if (queue.length > 3) queue.splice(0, queue.length - 3); // niet te ver achterlopen
+  if (queue.length > 3) queue.splice(0, queue.length - 3);
   pump();
 }
+async function transcribe(blob) {
+  const fd = new FormData();
+  fd.append('file', blob, 'speech.wav');
+  fd.append('model', 'whisper-large-v3');
+  fd.append('language', 'et');
+  fd.append('response_format', 'verbose_json');
+  fd.append('temperature', '0');
+  const r = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', {
+    method: 'POST', headers: { Authorization: 'Bearer ' + apiKey }, body: fd
+  });
+  if (!r.ok) { const e = new Error('http'); e.status = r.status; e.retry = parseFloat(r.headers.get('retry-after')) || 20; throw e; }
+  const j = await r.json();
+  // alleen segmenten houden waar Whisper zeker is dat er echt gesproken werd
+  const segs = (j.segments || []).filter(sg =>
+    (sg.no_speech_prob ?? 0) < 0.5 &&
+    (sg.avg_logprob ?? 0) > -0.9 &&
+    (sg.compression_ratio ?? 1) < 2.4);
+  const text = (j.segments ? segs.map(sg => sg.text).join(' ') : (j.text || '')).replace(/\s+/g, ' ').trim();
+  return HALLU_ET.test(text) ? '' : text;
+}
+
+/* ---------- Stap 2: tekst vertalen ---------- */
+async function translateText(et) {
+  try {  // Google Translate (goed in Ests, geen sleutel nodig)
+    const r = await fetch('https://translate.googleapis.com/translate_a/single?client=gtx&sl=et&tl=en&dt=t&q=' + encodeURIComponent(et));
+    if (!r.ok) throw 0;
+    const j = await r.json();
+    const t = j[0].map(p => p[0]).join('').trim();
+    if (t) return t;
+  } catch {}
+  // reserve: Groq-taalmodel
+  const r = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+    method: 'POST',
+    headers: { Authorization: 'Bearer ' + apiKey, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      model: 'llama-3.3-70b-versatile', temperature: 0,
+      messages: [
+        { role: 'system', content: 'Translate the Estonian text to natural English. Output only the translation, nothing else.' },
+        { role: 'user', content: et }
+      ]
+    })
+  });
+  if (!r.ok) throw new Error('vertalen mislukt');
+  const j = await r.json();
+  return (j.choices?.[0]?.message?.content || '').trim();
+}
+
 async function pump() {
   if (busy || !queue.length) return;
   const wait = Math.max(lastReq + MIN_GAP, pauseUntil) - Date.now();
@@ -222,30 +272,20 @@ async function pump() {
   const blob = queue.shift();
   lastReq = Date.now();
   try {
-    const fd = new FormData();
-    fd.append('file', blob, 'speech.wav');
-    fd.append('model', 'whisper-large-v3');
-    fd.append('response_format', 'json');
-    fd.append('temperature', '0');
-    const r = await fetch('https://api.groq.com/openai/v1/audio/translations', {
-      method: 'POST', headers: { Authorization: 'Bearer ' + apiKey }, body: fd
-    });
-    if (r.status === 401) { stop(); setStatus('Sleutel ongeldig. Controleer hem in ⚙︎.'); openSetup(); }
-    else if (r.status === 429) {
-      const ra = parseFloat(r.headers.get('retry-after')) || 20;
-      pauseUntil = Date.now() + ra * 1000;
-      setStatus('Groq-limiet even bereikt, ik wacht ' + Math.ceil(ra) + ' s…');
-      queue.unshift(blob);
-    } else if (!r.ok) {
-      setStatus('Fout bij vertalen (' + r.status + ').');
-    } else {
-      const j = await r.json();
-      const t = (j.text || '').trim();
-      if (t && !HALLUCINATIONS.test(t)) show(t);
-      if (running) setStatus('🎙️ Luistert…');
+    const et = await transcribe(blob);
+    if (et) {
+      const en = await translateText(et);
+      if (en) show(en, et);
     }
+    if (running) setStatus('🎙️ Luistert…');
   } catch (e) {
-    setStatus('Geen verbinding met Groq.');
+    if (e.status === 401) { stop(); setStatus('Sleutel ongeldig. Controleer hem in ⚙︎.'); openSetup(); }
+    else if (e.status === 429) {
+      pauseUntil = Date.now() + e.retry * 1000;
+      setStatus('Groq-limiet even bereikt, ik wacht ' + Math.ceil(e.retry) + ' s…');
+      queue.unshift(blob);
+    } else if (e.status) setStatus('Fout bij Groq (' + e.status + ').');
+    else setStatus('Geen verbinding.');
   } finally {
     busy = false; big.classList.remove('busy');
     if (queue.length) pump();
@@ -256,7 +296,7 @@ async function pump() {
 let running = false, ctx = null, stream = null, src = null, proc = null;
 let noise = 0.004, speaking = false, segment = [], segLen = 0, silentMs = 0, speechMs = 0;
 const pre = []; let preLen = 0;
-const PRE_MS = 350, END_SILENCE_MS = 700, MAX_SEG_MS = 9000, MIN_SPEECH_MS = 450;
+const PRE_MS = 350, END_SILENCE_MS = 800, MAX_SEG_MS = 10000, MIN_SPEECH_MS = 700;
 
 function threshold() {
   // gevoeligheid 1 (ongevoelig) .. 10 (zeer gevoelig)
