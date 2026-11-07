@@ -6,106 +6,160 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="ET→EN">
+<meta name="theme-color" content="#0f1115">
 <title>Live vertaler Ests → Engels</title>
 <style>
-  :root { --bg:#0f1115; --card:#1a1d24; --line:#2a2f3a; --txt:#e9ecf2; --mut:#8b93a3; --acc:#4f8cff; --rec:#ff4d5e; }
-  * { box-sizing:border-box; }
-  html,body { margin:0; background:var(--bg); color:var(--txt);
+  :root { --bg:#0f1115; --card:#1a1d24; --line:#2a2f3a; --txt:#eef1f6; --mut:#8b93a3; --acc:#4f8cff; --rec:#ff4d5e; --ok:#38d07a; }
+  * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html,body { margin:0; height:100%; background:var(--bg); color:var(--txt);
     font:16px/1.45 -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif; }
-  body { padding: calc(env(safe-area-inset-top) + 12px) 14px calc(env(safe-area-inset-bottom) + 150px); }
-  h1 { font-size:18px; margin:0 0 4px; }
-  .sub { color:var(--mut); font-size:13px; margin-bottom:12px; }
-  #status { font-size:13px; color:var(--mut); margin-bottom:10px; min-height:18px; }
-  #feed { display:flex; flex-direction:column; gap:10px; }
-  .item { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:12px 14px; }
-  .et { color:var(--mut); font-size:14px; }
-  .en { font-size:19px; font-weight:600; margin-top:4px; }
-  .item.interim .en { color:var(--mut); font-weight:400; font-style:italic; }
-  .actions { display:flex; gap:14px; margin-top:8px; }
-  .actions a, .actions button { background:none; border:0; padding:0; color:var(--acc); font-size:13px; text-decoration:none; }
-  .empty { color:var(--mut); text-align:center; padding:40px 10px; }
-  .bar { position:fixed; left:0; right:0; bottom:0; background:rgba(15,17,21,.94);
-    backdrop-filter:blur(12px); -webkit-backdrop-filter:blur(12px); border-top:1px solid var(--line);
-    padding:10px 14px calc(env(safe-area-inset-bottom) + 10px); }
-  .row { display:flex; gap:8px; align-items:center; }
-  textarea { flex:1; resize:none; height:44px; border-radius:12px; border:1px solid var(--line);
-    background:var(--card); color:var(--txt); padding:10px 12px; font:inherit; font-size:16px; }
-  .btn { border:0; border-radius:12px; height:44px; padding:0 14px; font-weight:600; font-size:15px;
-    background:var(--acc); color:#fff; }
-  #mic { width:100%; height:54px; border-radius:27px; font-size:17px; margin-top:8px; }
-  #mic.on { background:var(--rec); animation:pulse 1.4s infinite; }
-  @keyframes pulse { 50% { opacity:.75; } }
-  .opts { display:flex; justify-content:space-between; margin-top:8px; font-size:13px; color:var(--mut); }
-  .opts label { display:flex; gap:6px; align-items:center; }
-  .opts button { background:none; border:0; color:var(--mut); font-size:13px; }
-
-  .et { display:none; }
-  #big { font-weight:700; line-height:1.12; letter-spacing:-.01em; min-height:30vh;
+  body { padding: calc(env(safe-area-inset-top) + 12px) 14px calc(env(safe-area-inset-bottom) + 110px); }
+  header { display:flex; justify-content:space-between; align-items:center; }
+  h1 { font-size:17px; margin:0; }
+  #gear { background:none; border:0; color:var(--mut); font-size:22px; padding:4px; }
+  #status { font-size:13px; color:var(--mut); margin:6px 0 4px; min-height:18px; }
+  #big { font-weight:700; line-height:1.12; letter-spacing:-.01em; min-height:38vh;
     display:flex; align-items:center; justify-content:center; text-align:center;
     padding:10px 4px; overflow:hidden; font-size:44px; overflow-wrap:break-word; hyphens:none; }
-  #big.interim { color:#c9d1e0; }
   #big.placeholder { color:var(--mut); font-weight:500; }
+  #big.busy { opacity:.55; }
+  #feed { display:flex; flex-direction:column-reverse; gap:8px; margin-top:8px; }
+  .item { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:9px 12px; font-size:16px; }
+  .bar { position:fixed; left:0; right:0; bottom:0; display:flex; justify-content:center;
+    padding:12px 14px calc(env(safe-area-inset-bottom) + 12px);
+    background:linear-gradient(transparent, var(--bg) 35%); }
+  #mic { position:relative; width:76px; height:76px; border-radius:50%; border:0; background:var(--acc);
+    color:#fff; font-size:30px; box-shadow:0 0 0 0 rgba(255,77,94,.0); transition:box-shadow .08s; }
+  #mic.on { background:var(--rec); }
+  #mic .ico::before { content:'🎙️'; }
+  #mic.on .ico::before { content:'⏹'; }
+  #dot { position:absolute; top:6px; right:6px; width:12px; height:12px; border-radius:50%; background:transparent; }
+  #mic.on #dot.speech { background:var(--ok); }
+
+  /* Landscape: alleen de vertaling, schermvullend */
   @media (orientation: landscape) and (max-height: 600px) {
     body { padding:0; }
-    h1, .sub, #feed, .bar .row, .opts { display:none !important; }
-    #status { position:fixed; top:6px; left:calc(env(safe-area-inset-left) + 12px); z-index:3; font-size:12px; margin:0; }
+    header, #feed { display:none !important; }
+    #status { position:fixed; top:6px; left:calc(env(safe-area-inset-left) + 14px); z-index:3; font-size:12px; margin:0; }
     #big { position:fixed; inset:0; min-height:0;
-      padding: 24px calc(env(safe-area-inset-right) + 90px) calc(env(safe-area-inset-bottom) + 16px) calc(env(safe-area-inset-left) + 24px); }
-    .bar { left:auto; top:auto; right:calc(env(safe-area-inset-right) + 12px); bottom:calc(env(safe-area-inset-bottom) + 12px);
-      background:none; border:0; padding:0; backdrop-filter:none; -webkit-backdrop-filter:none; }
-    #mic { width:64px; height:64px; border-radius:32px; font-size:0; margin:0; }
-    #mic::before { content:'🎙️'; font-size:26px; }
-    #mic.on::before { content:'⏹'; }
+      padding: 24px calc(env(safe-area-inset-right) + 96px) calc(env(safe-area-inset-bottom) + 14px) calc(env(safe-area-inset-left) + 24px); }
+    .bar { left:auto; right:calc(env(safe-area-inset-right) + 12px); bottom:calc(env(safe-area-inset-bottom) + 12px);
+      padding:0; background:none; }
+    #mic { width:66px; height:66px; font-size:26px; }
   }
+
+  /* Instellingen */
+  #setup { position:fixed; inset:0; background:rgba(0,0,0,.7); display:none; align-items:center; justify-content:center; z-index:10; padding:20px; }
+  #setup.show { display:flex; }
+  .panel { background:var(--card); border:1px solid var(--line); border-radius:18px; padding:20px; width:100%; max-width:440px; }
+  .panel h2 { margin:0 0 8px; font-size:19px; }
+  .panel p, .panel ol { color:var(--mut); font-size:14px; margin:6px 0; }
+  .panel ol { padding-left:20px; }
+  .panel a { color:var(--acc); }
+  .panel input[type=password], .panel input[type=text] { width:100%; margin:10px 0; padding:12px; border-radius:10px; border:1px solid var(--line);
+    background:var(--bg); color:var(--txt); font-size:16px; }
+  .panel label { display:block; font-size:14px; color:var(--mut); margin-top:8px; }
+  .panel input[type=range] { width:100%; }
+  .panel .btns { display:flex; gap:10px; margin-top:12px; }
+  .panel button { flex:1; height:46px; border-radius:12px; border:0; font-size:16px; font-weight:600; background:var(--acc); color:#fff; }
+  .panel button.sec { background:var(--line); }
 </style>
 </head>
 <body>
-  <h1>🇪🇪 → 🇬🇧 Live vertaler</h1>
-  <div class="sub">Spreek Ests; de Engelse vertaling verschijnt groot in beeld. Draai je iPhone liggend voor volledig scherm.</div>
-  <div id="status">Klaar.</div>
+  <header>
+    <h1>🇪🇪 → 🇬🇧 Live vertaler</h1>
+    <button id="gear" aria-label="Instellingen">⚙︎</button>
+  </header>
+  <div id="status">Tik op de microfoon om te beginnen.</div>
   <div id="big" lang="en" class="placeholder">Tik op de microfoon en spreek Ests</div>
-  <div id="feed"><div class="empty" id="empty">Eerdere vertalingen verschijnen hier.</div></div>
+  <div id="feed" lang="en"></div>
 
   <div class="bar">
-    <button class="btn" id="mic">🎙️ Start live luisteren</button>
-    <div class="opts">
-      <label><input type="checkbox" id="speak"> Engels voorlezen</label>
-      <button id="clear">Wissen</button>
+    <button id="mic" aria-label="Start / stop"><span class="ico"></span><span id="dot"></span></button>
+  </div>
+
+  <div id="setup">
+    <div class="panel">
+      <h2>Groq-sleutel</h2>
+      <ol>
+        <li>Maak gratis een account op <a href="https://console.groq.com/keys" target="_blank" rel="noopener">console.groq.com/keys</a></li>
+        <li>Tik op <b>Create API Key</b> en kopieer hem</li>
+        <li>Plak hem hieronder</li>
+      </ol>
+      <input id="key" type="password" placeholder="gsk_…" autocomplete="off" autocapitalize="off" spellcheck="false">
+      <p>De sleutel blijft alleen in Safari op deze iPhone.</p>
+      <label>Microfoongevoeligheid <span id="sensVal"></span>
+        <input id="sens" type="range" min="1" max="10" step="1">
+      </label>
+      <div class="btns">
+        <button class="sec" id="cancel">Sluiten</button>
+        <button id="save">Opslaan</button>
+      </div>
     </div>
   </div>
 
 <script>
 const $ = s => document.querySelector(s);
-const feed = $('#feed'), statusEl = $('#status');
+const big = $('#big'), feed = $('#feed'), statusEl = $('#status'), micBtn = $('#mic'), dot = $('#dot');
 const setStatus = t => statusEl.textContent = t;
-const cache = new Map();
 
+/* ---------- Opslag ---------- */
+const store = {
+  get(k, d) { try { const v = localStorage.getItem(k); return v === null ? d : v; } catch { return d; } },
+  set(k, v) { try { localStorage.setItem(k, v); } catch {} }
+};
+let apiKey = store.get('groqKey', '');
+let sens = +store.get('sens', '5');
+
+/* ---------- Instellingen ---------- */
+function openSetup() {
+  $('#key').value = apiKey;
+  $('#sens').value = sens; $('#sensVal').textContent = sens;
+  $('#setup').classList.add('show');
+}
+$('#sens').oninput = e => $('#sensVal').textContent = e.target.value;
+$('#gear').onclick = openSetup;
+$('#cancel').onclick = () => $('#setup').classList.remove('show');
+$('#save').onclick = () => {
+  apiKey = $('#key').value.trim(); store.set('groqKey', apiKey);
+  sens = +$('#sens').value; store.set('sens', String(sens));
+  $('#setup').classList.remove('show');
+  setStatus(apiKey ? 'Sleutel opgeslagen. Tik op de microfoon.' : 'Geen sleutel ingevuld.');
+};
+if (!apiKey) openSetup();
 
 /* ---------- Groot beeld ---------- */
-const big = document.querySelector('#big');
+const isLandscape = () => matchMedia('(orientation: landscape) and (max-height: 600px)').matches;
 function fitBig() {
   const cs = getComputedStyle(big);
   const w = big.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
   const h = big.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom);
-  const landscape = matchMedia('(orientation: landscape) and (max-height: 600px)').matches;
-  let lo = 18, hi = landscape ? 220 : 72;
-  const probe = fitBig.p || (fitBig.p = Object.assign(document.createElement('div'), {}));
-  probe.style.cssText = 'position:absolute;visibility:hidden;left:-9999px;top:0;font-weight:700;line-height:1.12;word-break:break-word;';
+  const land = isLandscape();
+  let lo = 18, hi = land ? 230 : 76;
+  const probe = document.createElement('div');
+  probe.style.cssText = 'position:absolute;visibility:hidden;left:-9999px;top:0;font-weight:700;line-height:1.12;overflow-wrap:break-word;letter-spacing:-.01em';
   probe.style.width = w + 'px';
   probe.textContent = big.textContent;
   document.body.appendChild(probe);
+  const maxH = land ? h : Math.max(h, 200);
   while (hi - lo > 1) {
     const m = (lo + hi) >> 1;
     probe.style.fontSize = m + 'px';
-    (probe.scrollHeight <= (landscape ? h : Math.max(h, 160)) ? (lo = m) : (hi = m));
+    if (probe.scrollHeight <= maxH && probe.scrollWidth <= w + 1) lo = m; else hi = m;
   }
   probe.remove();
   big.style.fontSize = lo + 'px';
 }
-function setBig(text, interim) {
-  if (!text) return;
+let lastShown = '';
+function show(text) {
+  if (lastShown) {
+    const d = document.createElement('div');
+    d.className = 'item'; d.textContent = lastShown;
+    feed.appendChild(d);
+    while (feed.children.length > 30) feed.firstChild.remove();
+  }
+  lastShown = text;
   big.textContent = text;
-  big.classList.toggle('interim', !!interim);
   big.classList.remove('placeholder');
   fitBig();
 }
@@ -113,7 +167,7 @@ addEventListener('resize', () => setTimeout(fitBig, 150));
 addEventListener('orientationchange', () => setTimeout(fitBig, 300));
 setTimeout(fitBig, 0);
 
-/* scherm aan houden tijdens luisteren */
+/* ---------- Scherm aan houden ---------- */
 let wakeLock = null;
 async function keepAwake(on) {
   try {
@@ -121,141 +175,163 @@ async function keepAwake(on) {
     else if (!on && wakeLock) { await wakeLock.release(); wakeLock = null; }
   } catch {}
 }
-document.addEventListener('visibilitychange', () => { if (listening && document.visibilityState === 'visible') keepAwake(true); });
+document.addEventListener('visibilitychange', () => { if (running && document.visibilityState === 'visible') keepAwake(true); });
 
-/* ---------- Vertaling ---------- */
-async function translate(text) {
-  text = text.trim();
-  if (!text) return '';
-  if (cache.has(text)) return cache.get(text);
-  let out = '';
-  try {
-    const u = 'https://translate.googleapis.com/translate_a/single?client=gtx&sl=et&tl=en&dt=t&q=' + encodeURIComponent(text);
-    const r = await fetch(u);
-    if (!r.ok) throw new Error(r.status);
-    const j = await r.json();
-    out = j[0].map(p => p[0]).join('');
-  } catch (e) {
-    try { // reserve: MyMemory
-      const r = await fetch('https://api.mymemory.translated.net/get?langpair=et|en&q=' + encodeURIComponent(text));
-      const j = await r.json();
-      out = j.responseData.translatedText || '';
-    } catch (e2) { throw new Error('Geen internet of vertaaldienst onbereikbaar'); }
+/* ---------- WAV-encoder (16 kHz mono) ---------- */
+const TARGET_SR = 16000;
+function downsample(buf, inRate) {
+  if (inRate === TARGET_SR) return buf;
+  const ratio = inRate / TARGET_SR, len = Math.floor(buf.length / ratio), out = new Float32Array(len);
+  for (let i = 0; i < len; i++) {
+    const s = Math.floor(i * ratio), e = Math.min(Math.floor((i + 1) * ratio), buf.length);
+    let sum = 0; for (let j = s; j < e; j++) sum += buf[j];
+    out[i] = sum / Math.max(1, e - s);
   }
-  cache.set(text, out);
   return out;
 }
+function encodeWav(samples) {
+  const b = new ArrayBuffer(44 + samples.length * 2), v = new DataView(b);
+  const w = (o, s) => { for (let i = 0; i < s.length; i++) v.setUint8(o + i, s.charCodeAt(i)); };
+  w(0, 'RIFF'); v.setUint32(4, 36 + samples.length * 2, true); w(8, 'WAVE'); w(12, 'fmt ');
+  v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+  v.setUint32(24, TARGET_SR, true); v.setUint32(28, TARGET_SR * 2, true);
+  v.setUint16(32, 2, true); v.setUint16(34, 16, true); w(36, 'data'); v.setUint32(40, samples.length * 2, true);
+  for (let i = 0, o = 44; i < samples.length; i++, o += 2) {
+    const s = Math.max(-1, Math.min(1, samples[i]));
+    v.setInt16(o, s < 0 ? s * 0x8000 : s * 0x7fff, true);
+  }
+  return new Blob([b], { type: 'audio/wav' });
+}
 
-/* ---------- Weergave ---------- */
-function newItem(interim) {
-  $('#empty')?.remove();
-  const d = document.createElement('div');
-  d.className = 'item' + (interim ? ' interim' : '');
-  d.innerHTML = '<div class="et"></div><div class="en">…</div>';
-  feed.appendChild(d);
-  return d;
+/* ---------- Groq: Ests → Engels ---------- */
+const HALLUCINATIONS = /^(thank you( for watching)?|thanks for watching|subtitles by.*|please subscribe.*|you|bye\.?|\.+|\s*)$/i;
+const queue = [];
+let busy = false, lastReq = 0, pauseUntil = 0;
+const MIN_GAP = 3100; // max 20 verzoeken per minuut
+
+function enqueue(blob) {
+  queue.push(blob);
+  if (queue.length > 3) queue.splice(0, queue.length - 3); // niet te ver achterlopen
+  pump();
 }
-function finalize(item, et, en) {
-  item.querySelector('.en').style.fontSize='17px';
-  item.classList.remove('interim');
-  item.querySelector('.et').textContent = et;
-  item.querySelector('.en').textContent = en;
-  const a = document.createElement('div');
-  a.className = 'actions';
-  a.innerHTML =
-    '<button data-a="copy">Kopieer</button>' +
-    '<button data-a="say">Voorlezen</button>' +
-    '<a target="_blank" rel="noopener" href="https://translate.google.com/?sl=et&tl=en&op=translate&text=' +
-      encodeURIComponent(et) + '">Open in Google Translate</a>';
-  a.querySelector('[data-a=copy]').onclick = () => navigator.clipboard?.writeText(en);
-  a.querySelector('[data-a=say]').onclick = () => say(en, true);
-  item.appendChild(a);
-  item.scrollIntoView({ behavior:'smooth', block:'end' });
-}
-function say(text, force) {
-  if (!(force || $('#speak').checked) || !('speechSynthesis' in window)) return;
-  const u = new SpeechSynthesisUtterance(text);
-  u.lang = 'en-GB';
-  speechSynthesis.speak(u);
-}
-async function handleFinal(et, item) {
-  item = item || newItem(true);
-  item.querySelector('.et').textContent = et;
+async function pump() {
+  if (busy || !queue.length) return;
+  const wait = Math.max(lastReq + MIN_GAP, pauseUntil) - Date.now();
+  if (wait > 0) { setTimeout(pump, wait); return; }
+  busy = true; big.classList.add('busy');
+  const blob = queue.shift();
+  lastReq = Date.now();
   try {
-    const en = await translate(et);
-    finalize(item, et, en);
-    setBig(en, false);
-    say(en);
+    const fd = new FormData();
+    fd.append('file', blob, 'speech.wav');
+    fd.append('model', 'whisper-large-v3');
+    fd.append('response_format', 'json');
+    fd.append('temperature', '0');
+    const r = await fetch('https://api.groq.com/openai/v1/audio/translations', {
+      method: 'POST', headers: { Authorization: 'Bearer ' + apiKey }, body: fd
+    });
+    if (r.status === 401) { stop(); setStatus('Sleutel ongeldig. Controleer hem in ⚙︎.'); openSetup(); }
+    else if (r.status === 429) {
+      const ra = parseFloat(r.headers.get('retry-after')) || 20;
+      pauseUntil = Date.now() + ra * 1000;
+      setStatus('Groq-limiet even bereikt, ik wacht ' + Math.ceil(ra) + ' s…');
+      queue.unshift(blob);
+    } else if (!r.ok) {
+      setStatus('Fout bij vertalen (' + r.status + ').');
+    } else {
+      const j = await r.json();
+      const t = (j.text || '').trim();
+      if (t && !HALLUCINATIONS.test(t)) show(t);
+      if (running) setStatus('🎙️ Luistert…');
+    }
   } catch (e) {
-    item.querySelector('.en').textContent = '⚠️ ' + e.message;
+    setStatus('Geen verbinding met Groq.');
+  } finally {
+    busy = false; big.classList.remove('busy');
+    if (queue.length) pump();
   }
 }
 
-$('#clear').onclick = () => { feed.innerHTML = ''; };
+/* ---------- Opnemen + spraakdetectie ---------- */
+let running = false, ctx = null, stream = null, src = null, proc = null;
+let noise = 0.004, speaking = false, segment = [], segLen = 0, silentMs = 0, speechMs = 0;
+const pre = []; let preLen = 0;
+const PRE_MS = 350, END_SILENCE_MS = 700, MAX_SEG_MS = 9000, MIN_SPEECH_MS = 450;
 
-/* ---------- Live spraakherkenning (Safari / iOS) ---------- */
-const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-let rec = null, listening = false, interimItem = null, interimTimer = null;
+function threshold() {
+  // gevoeligheid 1 (ongevoelig) .. 10 (zeer gevoelig)
+  const factor = 4.2 - sens * 0.3;     // 3.9 .. 1.2
+  return Math.max(noise * factor, 0.012 - sens * 0.0009);
+}
+function flush() {
+  const ms = segLen / ctx.sampleRate * 1000;
+  if (speechMs >= MIN_SPEECH_MS) {
+    const all = new Float32Array(segLen); let o = 0;
+    for (const c of segment) { all.set(c, o); o += c.length; }
+    enqueue(encodeWav(downsample(all, ctx.sampleRate)));
+  }
+  segment = []; segLen = 0; speaking = false; silentMs = 0; speechMs = 0;
+  dot.classList.remove('speech');
+}
+function onAudio(e) {
+  const input = e.inputBuffer.getChannelData(0);
+  const chunk = new Float32Array(input);
+  let sum = 0; for (let i = 0; i < chunk.length; i++) sum += chunk[i] * chunk[i];
+  const rms = Math.sqrt(sum / chunk.length);
+  const ms = chunk.length / ctx.sampleRate * 1000;
+  const loud = rms > threshold();
 
-function startRec() {
-  rec = new SR();
-  rec.lang = 'et-EE';
-  rec.continuous = true;
-  rec.interimResults = true;
+  // geluidsniveau-indicatie op de knop
+  micBtn.style.boxShadow = '0 0 0 ' + Math.min(18, rms * 400).toFixed(1) + 'px rgba(255,77,94,.35)';
 
-  rec.onstart = () => setStatus('🎙️ Luistert (Ests)…');
-  rec.onresult = ev => {
-    let interim = '';
-    for (let i = ev.resultIndex; i < ev.results.length; i++) {
-      const r = ev.results[i], t = r[0].transcript.trim();
-      if (r.isFinal) {
-        if (t) handleFinal(t, interimItem);
-        interimItem = null;
-      } else interim += t + ' ';
+  if (!speaking) {
+    if (!loud) noise = noise * 0.95 + rms * 0.05; // achtergrondgeluid leren
+    pre.push(chunk); preLen += chunk.length;
+    while (preLen > ctx.sampleRate * PRE_MS / 1000 && pre.length > 1) preLen -= pre.shift().length;
+    if (loud) {
+      speaking = true; dot.classList.add('speech');
+      segment = pre.splice(0); segLen = preLen; preLen = 0;
+      speechMs = ms; silentMs = 0;
     }
-    interim = interim.trim();
-    if (interim) {
-      interimItem = interimItem || newItem(true);
-      interimItem.querySelector('.et').textContent = interim;
-      clearTimeout(interimTimer);
-      interimTimer = setTimeout(async () => {   // live voorvertaling tijdens het praten
-        if (!interimItem) return;
-        try { const en = await translate(interim);
-          if (interimItem) interimItem.querySelector('.en').textContent = en; setBig(en, true); } catch {}
-      }, 350);
-    }
-  };
-  rec.onerror = e => {
-    const msg = {
-      'not-allowed': 'Microfoon geweigerd. Sta toe via Instellingen › Safari › Microfoon.',
-      'service-not-allowed': 'Spraakherkenning niet beschikbaar: iOS herkent geen Ests.',
-      'language-not-supported': 'Ests wordt door deze browser niet herkend.',
-      'no-speech': 'Niets gehoord…',
-      'network': 'Netwerkfout bij spraakherkenning.'
-    }[e.error] || ('Fout: ' + e.error);
-    setStatus(msg);
-    if (['not-allowed','service-not-allowed','language-not-supported'].includes(e.error)) stop();
-  };
-  rec.onend = () => { if (listening) { try { rec.start(); } catch {} } else setStatus('Gestopt.'); };
-  rec.start();
+    return;
+  }
+  segment.push(chunk); segLen += chunk.length;
+  if (loud) { speechMs += ms; silentMs = 0; } else silentMs += ms;
+  const segMs = segLen / ctx.sampleRate * 1000;
+  if (silentMs >= END_SILENCE_MS || segMs >= MAX_SEG_MS) flush();
+}
+
+async function start() {
+  if (!apiKey) { openSetup(); return; }
+  if (!navigator.mediaDevices?.getUserMedia) { setStatus('Microfoon niet beschikbaar (open via https in Safari).'); return; }
+  try {
+    ctx = new (window.AudioContext || window.webkitAudioContext)();
+    await ctx.resume();
+    stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
+  } catch (e) {
+    setStatus(e.name === 'NotAllowedError' ? 'Microfoon geweigerd. Sta toe in Safari (aA-menu › Website-instellingen).' : 'Microfoon starten mislukt: ' + e.message);
+    try { ctx && ctx.close(); } catch {}
+    return;
+  }
+  src = ctx.createMediaStreamSource(stream);
+  proc = ctx.createScriptProcessor(2048, 1, 1);
+  proc.onaudioprocess = onAudio;
+  const mute = ctx.createGain(); mute.gain.value = 0;
+  src.connect(proc); proc.connect(mute); mute.connect(ctx.destination);
+  running = true; micBtn.classList.add('on'); keepAwake(true);
+  setStatus('🎙️ Luistert…');
 }
 function stop() {
-  listening = false;
-  try { rec && rec.stop(); } catch {}
-  $('#mic').classList.remove('on');
+  running = false; micBtn.classList.remove('on'); micBtn.style.boxShadow = ''; dot.classList.remove('speech');
+  if (ctx && speaking) flush();
+  try { proc && (proc.onaudioprocess = null, proc.disconnect()); src && src.disconnect(); } catch {}
+  try { stream && stream.getTracks().forEach(t => t.stop()); } catch {}
+  try { ctx && ctx.close(); } catch {}
+  ctx = stream = src = proc = null; pre.length = 0; preLen = 0;
   keepAwake(false);
-  $('#mic').textContent = '🎙️ Start live luisteren';
+  setStatus('Gestopt.');
 }
-$('#mic').onclick = () => {
-  if (!SR) { setStatus('Deze browser ondersteunt geen live spraakherkenning. '); return; }
-  if (listening) return stop();
-  listening = true;
-  $('#mic').classList.add('on');
-  keepAwake(true);
-  $('#mic').textContent = '⏹ Stop';
-  try { startRec(); } catch (e) { setStatus('Kon niet starten: ' + e.message); stop(); }
-};
-if (location.protocol === 'file:') setStatus('Let op: open deze pagina via https (bijv. GitHub Pages) voor microfoontoegang.');
+micBtn.onclick = () => running ? stop() : start();
 </script>
 </body>
 </html>
