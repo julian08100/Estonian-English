@@ -67,10 +67,6 @@
   <div id="feed"><div class="empty" id="empty">Eerdere vertalingen verschijnen hier.</div></div>
 
   <div class="bar">
-    <div class="row">
-      <textarea id="txt" placeholder="Eesti tekst…" enterkeyhint="send"></textarea>
-      <button class="btn" id="send">Vertaal</button>
-    </div>
     <button class="btn" id="mic">🎙️ Start live luisteren</button>
     <div class="opts">
       <label><input type="checkbox" id="speak"> Engels voorlezen</label>
@@ -195,16 +191,6 @@ async function handleFinal(et, item) {
   }
 }
 
-/* ---------- Handmatig / toetsenbord-dictatie ---------- */
-$('#send').onclick = () => {
-  const t = $('#txt').value.trim();
-  if (!t) return;
-  $('#txt').value = '';
-  t.split(/\n+/).filter(Boolean).forEach(line => handleFinal(line));
-};
-$('#txt').addEventListener('keydown', e => {
-  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); $('#send').click(); }
-});
 $('#clear').onclick = () => { feed.innerHTML = ''; };
 
 /* ---------- Live spraakherkenning (Safari / iOS) ---------- */
@@ -242,8 +228,8 @@ function startRec() {
   rec.onerror = e => {
     const msg = {
       'not-allowed': 'Microfoon geweigerd. Sta toe via Instellingen › Safari › Microfoon.',
-      'service-not-allowed': 'Spraakherkenning niet beschikbaar. Zet Siri/Dicteren aan, of gebruik het Estse toetsenbord met de dicteerknop.',
-      'language-not-supported': 'Ests wordt hier niet herkend. Gebruik het Estse toetsenbord + dicteerknop in het tekstveld.',
+      'service-not-allowed': 'Spraakherkenning niet beschikbaar: iOS herkent geen Ests.',
+      'language-not-supported': 'Ests wordt door deze browser niet herkend.',
       'no-speech': 'Niets gehoord…',
       'network': 'Netwerkfout bij spraakherkenning.'
     }[e.error] || ('Fout: ' + e.error);
@@ -261,7 +247,7 @@ function stop() {
   $('#mic').textContent = '🎙️ Start live luisteren';
 }
 $('#mic').onclick = () => {
-  if (!SR) { setStatus('Deze browser ondersteunt geen live spraakherkenning. Gebruik het tekstveld met dicteren.'); return; }
+  if (!SR) { setStatus('Deze browser ondersteunt geen live spraakherkenning. '); return; }
   if (listening) return stop();
   listening = true;
   $('#mic').classList.add('on');
