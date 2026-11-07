@@ -38,13 +38,33 @@
   .opts { display:flex; justify-content:space-between; margin-top:8px; font-size:13px; color:var(--mut); }
   .opts label { display:flex; gap:6px; align-items:center; }
   .opts button { background:none; border:0; color:var(--mut); font-size:13px; }
+
+  .et { display:none; }
+  #big { font-weight:700; line-height:1.12; letter-spacing:-.01em; min-height:30vh;
+    display:flex; align-items:center; justify-content:center; text-align:center;
+    padding:10px 4px; overflow:hidden; font-size:44px; overflow-wrap:break-word; hyphens:none; }
+  #big.interim { color:#c9d1e0; }
+  #big.placeholder { color:var(--mut); font-weight:500; }
+  @media (orientation: landscape) and (max-height: 600px) {
+    body { padding:0; }
+    h1, .sub, #feed, .bar .row, .opts { display:none !important; }
+    #status { position:fixed; top:6px; left:calc(env(safe-area-inset-left) + 12px); z-index:3; font-size:12px; margin:0; }
+    #big { position:fixed; inset:0; min-height:0;
+      padding: 24px calc(env(safe-area-inset-right) + 90px) calc(env(safe-area-inset-bottom) + 16px) calc(env(safe-area-inset-left) + 24px); }
+    .bar { left:auto; top:auto; right:calc(env(safe-area-inset-right) + 12px); bottom:calc(env(safe-area-inset-bottom) + 12px);
+      background:none; border:0; padding:0; backdrop-filter:none; -webkit-backdrop-filter:none; }
+    #mic { width:64px; height:64px; border-radius:32px; font-size:0; margin:0; }
+    #mic::before { content:'🎙️'; font-size:26px; }
+    #mic.on::before { content:'⏹'; }
+  }
 </style>
 </head>
 <body>
   <h1>🇪🇪 → 🇬🇧 Live vertaler</h1>
-  <div class="sub">Spreek Ests; de iPhone herkent de spraak en de tekst wordt direct naar Engels vertaald.</div>
+  <div class="sub">Spreek Ests; de Engelse vertaling verschijnt groot in beeld. Draai je iPhone liggend voor volledig scherm.</div>
   <div id="status">Klaar.</div>
-  <div id="feed"><div class="empty" id="empty">Tik op de microfoon en begin in het Ests te praten.<br>Of typ / dicteer hieronder met het Estse toetsenbord.</div></div>
+  <div id="big" lang="en" class="placeholder">Tik op de microfoon en spreek Ests</div>
+  <div id="feed"><div class="empty" id="empty">Eerdere vertalingen verschijnen hier.</div></div>
 
   <div class="bar">
     <div class="row">
@@ -63,6 +83,49 @@ const $ = s => document.querySelector(s);
 const feed = $('#feed'), statusEl = $('#status');
 const setStatus = t => statusEl.textContent = t;
 const cache = new Map();
+
+
+/* ---------- Groot beeld ---------- */
+const big = document.querySelector('#big');
+function fitBig() {
+  const cs = getComputedStyle(big);
+  const w = big.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+  const h = big.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom);
+  const landscape = matchMedia('(orientation: landscape) and (max-height: 600px)').matches;
+  let lo = 18, hi = landscape ? 220 : 72;
+  const probe = fitBig.p || (fitBig.p = Object.assign(document.createElement('div'), {}));
+  probe.style.cssText = 'position:absolute;visibility:hidden;left:-9999px;top:0;font-weight:700;line-height:1.12;word-break:break-word;';
+  probe.style.width = w + 'px';
+  probe.textContent = big.textContent;
+  document.body.appendChild(probe);
+  while (hi - lo > 1) {
+    const m = (lo + hi) >> 1;
+    probe.style.fontSize = m + 'px';
+    (probe.scrollHeight <= (landscape ? h : Math.max(h, 160)) ? (lo = m) : (hi = m));
+  }
+  probe.remove();
+  big.style.fontSize = lo + 'px';
+}
+function setBig(text, interim) {
+  if (!text) return;
+  big.textContent = text;
+  big.classList.toggle('interim', !!interim);
+  big.classList.remove('placeholder');
+  fitBig();
+}
+addEventListener('resize', () => setTimeout(fitBig, 150));
+addEventListener('orientationchange', () => setTimeout(fitBig, 300));
+setTimeout(fitBig, 0);
+
+/* scherm aan houden tijdens luisteren */
+let wakeLock = null;
+async function keepAwake(on) {
+  try {
+    if (on && 'wakeLock' in navigator) wakeLock = await navigator.wakeLock.request('screen');
+    else if (!on && wakeLock) { await wakeLock.release(); wakeLock = null; }
+  } catch {}
+}
+document.addEventListener('visibilitychange', () => { if (listening && document.visibilityState === 'visible') keepAwake(true); });
 
 /* ---------- Vertaling ---------- */
 async function translate(text) {
@@ -97,6 +160,7 @@ function newItem(interim) {
   return d;
 }
 function finalize(item, et, en) {
+  item.querySelector('.en').style.fontSize='17px';
   item.classList.remove('interim');
   item.querySelector('.et').textContent = et;
   item.querySelector('.en').textContent = en;
@@ -124,6 +188,7 @@ async function handleFinal(et, item) {
   try {
     const en = await translate(et);
     finalize(item, et, en);
+    setBig(en, false);
     say(en);
   } catch (e) {
     item.querySelector('.en').textContent = '⚠️ ' + e.message;
@@ -170,7 +235,7 @@ function startRec() {
       interimTimer = setTimeout(async () => {   // live voorvertaling tijdens het praten
         if (!interimItem) return;
         try { const en = await translate(interim);
-          if (interimItem) interimItem.querySelector('.en').textContent = en; } catch {}
+          if (interimItem) interimItem.querySelector('.en').textContent = en; setBig(en, true); } catch {}
       }, 350);
     }
   };
@@ -192,6 +257,7 @@ function stop() {
   listening = false;
   try { rec && rec.stop(); } catch {}
   $('#mic').classList.remove('on');
+  keepAwake(false);
   $('#mic').textContent = '🎙️ Start live luisteren';
 }
 $('#mic').onclick = () => {
@@ -199,6 +265,7 @@ $('#mic').onclick = () => {
   if (listening) return stop();
   listening = true;
   $('#mic').classList.add('on');
+  keepAwake(true);
   $('#mic').textContent = '⏹ Stop';
   try { startRec(); } catch (e) { setStatus('Kon niet starten: ' + e.message); stop(); }
 };
