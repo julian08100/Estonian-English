@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="ET→EN">
+<title>Live vertaler Ests → Engels</title>
+<style>
+  :root { --bg:#0f1115; --card:#1a1d24; --line:#2a2f3a; --txt:#e9ecf2; --mut:#8b93a3; --acc:#4f8cff; --rec:#ff4d5e; }
+  * { box-sizing:border-box; }
+  html,body { margin:0; background:var(--bg); color:var(--txt);
+    font:16px/1.45 -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif; }
+  body { padding: calc(env(safe-area-inset-top) + 12px) 14px calc(env(safe-area-inset-bottom) + 150px); }
+  h1 { font-size:18px; margin:0 0 4px; }
+  .sub { color:var(--mut); font-size:13px; margin-bottom:12px; }
+  #status { font-size:13px; color:var(--mut); margin-bottom:10px; min-height:18px; }
+  #feed { display:flex; flex-direction:column; gap:10px; }
+  .item { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:12px 14px; }
+  .et { color:var(--mut); font-size:14px; }
+  .en { font-size:19px; font-weight:600; margin-top:4px; }
+  .item.interim .en { color:var(--mut); font-weight:400; font-style:italic; }
+  .actions { display:flex; gap:14px; margin-top:8px; }
+  .actions a, .actions button { background:none; border:0; padding:0; color:var(--acc); font-size:13px; text-decoration:none; }
+  .empty { color:var(--mut); text-align:center; padding:40px 10px; }
+  .bar { position:fixed; left:0; right:0; bottom:0; background:rgba(15,17,21,.94);
+    backdrop-filter:blur(12px); -webkit-backdrop-filter:blur(12px); border-top:1px solid var(--line);
+    padding:10px 14px calc(env(safe-area-inset-bottom) + 10px); }
+  .row { display:flex; gap:8px; align-items:center; }
+  textarea { flex:1; resize:none; height:44px; border-radius:12px; border:1px solid var(--line);
+    background:var(--card); color:var(--txt); padding:10px 12px; font:inherit; font-size:16px; }
+  .btn { border:0; border-radius:12px; height:44px; padding:0 14px; font-weight:600; font-size:15px;
+    background:var(--acc); color:#fff; }
+  #mic { width:100%; height:54px; border-radius:27px; font-size:17px; margin-top:8px; }
+  #mic.on { background:var(--rec); animation:pulse 1.4s infinite; }
+  @keyframes pulse { 50% { opacity:.75; } }
+  .opts { display:flex; justify-content:space-between; margin-top:8px; font-size:13px; color:var(--mut); }
+  .opts label { display:flex; gap:6px; align-items:center; }
+  .opts button { background:none; border:0; color:var(--mut); font-size:13px; }
+</style>
+</head>
+<body>
+  <h1>🇪🇪 → 🇬🇧 Live vertaler</h1>
+  <div class="sub">Spreek Ests; de iPhone herkent de spraak en de tekst wordt direct naar Engels vertaald.</div>
+  <div id="status">Klaar.</div>
+  <div id="feed"><div class="empty" id="empty">Tik op de microfoon en begin in het Ests te praten.<br>Of typ / dicteer hieronder met het Estse toetsenbord.</div></div>
+
+  <div class="bar">
+    <div class="row">
+      <textarea id="txt" placeholder="Eesti tekst…" enterkeyhint="send"></textarea>
+      <button class="btn" id="send">Vertaal</button>
+    </div>
+    <button class="btn" id="mic">🎙️ Start live luisteren</button>
+    <div class="opts">
+      <label><input type="checkbox" id="speak"> Engels voorlezen</label>
+      <button id="clear">Wissen</button>
+    </div>
+  </div>
+
+<script>
+const $ = s => document.querySelector(s);
+const feed = $('#feed'), statusEl = $('#status');
+const setStatus = t => statusEl.textContent = t;
+const cache = new Map();
+
+/* ---------- Vertaling ---------- */
+async function translate(text) {
+  text = text.trim();
+  if (!text) return '';
+  if (cache.has(text)) return cache.get(text);
+  let out = '';
+  try {
+    const u = 'https://translate.googleapis.com/translate_a/single?client=gtx&sl=et&tl=en&dt=t&q=' + encodeURIComponent(text);
+    const r = await fetch(u);
+    if (!r.ok) throw new Error(r.status);
+    const j = await r.json();
+    out = j[0].map(p => p[0]).join('');
+  } catch (e) {
+    try { // reserve: MyMemory
+      const r = await fetch('https://api.mymemory.translated.net/get?langpair=et|en&q=' + encodeURIComponent(text));
+      const j = await r.json();
+      out = j.responseData.translatedText || '';
+    } catch (e2) { throw new Error('Geen internet of vertaaldienst onbereikbaar'); }
+  }
+  cache.set(text, out);
+  return out;
+}
+
+/* ---------- Weergave ---------- */
+function newItem(interim) {
+  $('#empty')?.remove();
+  const d = document.createElement('div');
+  d.className = 'item' + (interim ? ' interim' : '');
+  d.innerHTML = '<div class="et"></div><div class="en">…</div>';
+  feed.appendChild(d);
+  return d;
+}
+function finalize(item, et, en) {
+  item.classList.remove('interim');
+  item.querySelector('.et').textContent = et;
+  item.querySelector('.en').textContent = en;
+  const a = document.createElement('div');
+  a.className = 'actions';
+  a.innerHTML =
+    '<button data-a="copy">Kopieer</button>' +
+    '<button data-a="say">Voorlezen</button>' +
+    '<a target="_blank" rel="noopener" href="https://translate.google.com/?sl=et&tl=en&op=translate&text=' +
+      encodeURIComponent(et) + '">Open in Google Translate</a>';
+  a.querySelector('[data-a=copy]').onclick = () => navigator.clipboard?.writeText(en);
+  a.querySelector('[data-a=say]').onclick = () => say(en, true);
+  item.appendChild(a);
+  item.scrollIntoView({ behavior:'smooth', block:'end' });
+}
+function say(text, force) {
+  if (!(force || $('#speak').checked) || !('speechSynthesis' in window)) return;
+  const u = new SpeechSynthesisUtterance(text);
+  u.lang = 'en-GB';
+  speechSynthesis.speak(u);
+}
+async function handleFinal(et, item) {
+  item = item || newItem(true);
+  item.querySelector('.et').textContent = et;
+  try {
+    const en = await translate(et);
+    finalize(item, et, en);
+    say(en);
+  } catch (e) {
+    item.querySelector('.en').textContent = '⚠️ ' + e.message;
+  }
+}
+
+/* ---------- Handmatig / toetsenbord-dictatie ---------- */
+$('#send').onclick = () => {
+  const t = $('#txt').value.trim();
+  if (!t) return;
+  $('#txt').value = '';
+  t.split(/\n+/).filter(Boolean).forEach(line => handleFinal(line));
+};
+$('#txt').addEventListener('keydown', e => {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); $('#send').click(); }
+});
+$('#clear').onclick = () => { feed.innerHTML = ''; };
+
+/* ---------- Live spraakherkenning (Safari / iOS) ---------- */
+const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+let rec = null, listening = false, interimItem = null, interimTimer = null;
+
+function startRec() {
+  rec = new SR();
+  rec.lang = 'et-EE';
+  rec.continuous = true;
+  rec.interimResults = true;
+
+  rec.onstart = () => setStatus('🎙️ Luistert (Ests)…');
+  rec.onresult = ev => {
+    let interim = '';
+    for (let i = ev.resultIndex; i < ev.results.length; i++) {
+      const r = ev.results[i], t = r[0].transcript.trim();
+      if (r.isFinal) {
+        if (t) handleFinal(t, interimItem);
+        interimItem = null;
+      } else interim += t + ' ';
+    }
+    interim = interim.trim();
+    if (interim) {
+      interimItem = interimItem || newItem(true);
+      interimItem.querySelector('.et').textContent = interim;
+      clearTimeout(interimTimer);
+      interimTimer = setTimeout(async () => {   // live voorvertaling tijdens het praten
+        if (!interimItem) return;
+        try { const en = await translate(interim);
+          if (interimItem) interimItem.querySelector('.en').textContent = en; } catch {}
+      }, 350);
+    }
+  };
+  rec.onerror = e => {
+    const msg = {
+      'not-allowed': 'Microfoon geweigerd. Sta toe via Instellingen › Safari › Microfoon.',
+      'service-not-allowed': 'Spraakherkenning niet beschikbaar. Zet Siri/Dicteren aan, of gebruik het Estse toetsenbord met de dicteerknop.',
+      'language-not-supported': 'Ests wordt hier niet herkend. Gebruik het Estse toetsenbord + dicteerknop in het tekstveld.',
+      'no-speech': 'Niets gehoord…',
+      'network': 'Netwerkfout bij spraakherkenning.'
+    }[e.error] || ('Fout: ' + e.error);
+    setStatus(msg);
+    if (['not-allowed','service-not-allowed','language-not-supported'].includes(e.error)) stop();
+  };
+  rec.onend = () => { if (listening) { try { rec.start(); } catch {} } else setStatus('Gestopt.'); };
+  rec.start();
+}
+function stop() {
+  listening = false;
+  try { rec && rec.stop(); } catch {}
+  $('#mic').classList.remove('on');
+  $('#mic').textContent = '🎙️ Start live luisteren';
+}
+$('#mic').onclick = () => {
+  if (!SR) { setStatus('Deze browser ondersteunt geen live spraakherkenning. Gebruik het tekstveld met dicteren.'); return; }
+  if (listening) return stop();
+  listening = true;
+  $('#mic').classList.add('on');
+  $('#mic').textContent = '⏹ Stop';
+  try { startRec(); } catch (e) { setStatus('Kon niet starten: ' + e.message); stop(); }
+};
+if (location.protocol === 'file:') setStatus('Let op: open deze pagina via https (bijv. GitHub Pages) voor microfoontoegang.');
+</script>
+</body>
+</html>
