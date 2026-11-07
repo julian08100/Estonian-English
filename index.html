@@ -89,9 +89,6 @@
       </ol>
       <input id="key" type="password" placeholder="gsk_…" autocomplete="off" autocapitalize="off" spellcheck="false">
       <p>De sleutel blijft alleen in Safari op deze iPhone.</p>
-      <label>Microfoongevoeligheid <span id="sensVal"></span>
-        <input id="sens" type="range" min="1" max="10" step="1">
-      </label>
       <div class="btns">
         <button class="sec" id="cancel">Sluiten</button>
         <button id="save">Opslaan</button>
@@ -110,20 +107,16 @@ const store = {
   set(k, v) { try { localStorage.setItem(k, v); } catch {} }
 };
 let apiKey = store.get('groqKey', '');
-let sens = +store.get('sens', '5');
 
 /* ---------- Instellingen ---------- */
 function openSetup() {
   $('#key').value = apiKey;
-  $('#sens').value = sens; $('#sensVal').textContent = sens;
   $('#setup').classList.add('show');
 }
-$('#sens').oninput = e => $('#sensVal').textContent = e.target.value;
 $('#gear').onclick = openSetup;
 $('#cancel').onclick = () => $('#setup').classList.remove('show');
 $('#save').onclick = () => {
   apiKey = $('#key').value.trim(); store.set('groqKey', apiKey);
-  sens = +$('#sens').value; store.set('sens', String(sens));
   $('#setup').classList.remove('show');
   setStatus(apiKey ? 'Sleutel opgeslagen. Tik op de microfoon.' : 'Geen sleutel ingevuld.');
 };
@@ -209,7 +202,7 @@ function encodeWav(samples) {
 /* ---------- Stap 1: Ests verstaan (Groq Whisper, taal vast op Ests) ---------- */
 const HALLU_ET = /^(aitäh( vaatamast)?\.?|tänan( vaatamast)?\.?|subtiitrid.*|tellige.*|\.+|\s*)$/i;
 const queue = [];
-let busy = false, lastReq = 0, pauseUntil = 0;
+let busy = false, lastReq = 0, pauseUntil = 0, ctxEt = '';
 const MIN_GAP = 3100; // max 20 verzoeken per minuut
 
 function enqueue(blob) {
@@ -224,6 +217,7 @@ async function transcribe(blob) {
   fd.append('language', 'et');
   fd.append('response_format', 'verbose_json');
   fd.append('temperature', '0');
+  if (ctxEt) fd.append('prompt', ctxEt.slice(-200));
   const r = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', {
     method: 'POST', headers: { Authorization: 'Bearer ' + apiKey }, body: fd
   });
@@ -231,8 +225,8 @@ async function transcribe(blob) {
   const j = await r.json();
   // alleen segmenten houden waar Whisper zeker is dat er echt gesproken werd
   const segs = (j.segments || []).filter(sg =>
-    (sg.no_speech_prob ?? 0) < 0.5 &&
-    (sg.avg_logprob ?? 0) > -0.9 &&
+    !((sg.no_speech_prob ?? 0) > 0.6 && (sg.avg_logprob ?? 0) < -0.8) &&
+    (sg.avg_logprob ?? 0) > -1.4 &&
     (sg.compression_ratio ?? 1) < 2.4);
   const text = (j.segments ? segs.map(sg => sg.text).join(' ') : (j.text || '')).replace(/\s+/g, ' ').trim();
   return HALLU_ET.test(text) ? '' : text;
@@ -274,6 +268,7 @@ async function pump() {
   try {
     const et = await transcribe(blob);
     if (et) {
+      ctxEt = (ctxEt + ' ' + et).slice(-300);
       const en = await translateText(et);
       if (en) show(en, et);
     }
@@ -292,53 +287,56 @@ async function pump() {
   }
 }
 
-/* ---------- Opnemen + spraakdetectie ---------- */
+/* ---------- Opnemen: doorlopend, knippen op natuurlijke pauzes ---------- */
 let running = false, ctx = null, stream = null, src = null, proc = null;
-let noise = 0.004, speaking = false, segment = [], segLen = 0, silentMs = 0, speechMs = 0;
-const pre = []; let preLen = 0;
-const PRE_MS = 350, END_SILENCE_MS = 800, MAX_SEG_MS = 10000, MIN_SPEECH_MS = 700;
+let frames = [], noise = 0.003, speechMs = 0, trailSil = 0;
+const FRAME_MS = () => 2048 / ctx.sampleRate * 1000;
 
-function threshold() {
-  // gevoeligheid 1 (ongevoelig) .. 10 (zeer gevoelig)
-  const factor = 4.2 - sens * 0.3;     // 3.9 .. 1.2
-  return Math.max(noise * factor, 0.012 - sens * 0.0009);
+function isSpeech(rms) { return rms > Math.max(noise * 2.2, 0.0025); }
+
+function send(n) {   // eerste n frames versturen
+  const part = frames.splice(0, n);
+  let len = 0, voiced = 0;
+  for (const f of part) { len += f.d.length; if (isSpeech(f.r)) voiced++; }
+  if (voiced * FRAME_MS() < 350) return;           // vrijwel geen spraak: overslaan
+  const all = new Float32Array(len); let o = 0, peak = 0;
+  for (const f of part) { all.set(f.d, o); o += f.d.length; }
+  for (let i = 0; i < len; i++) { const a = Math.abs(all[i]); if (a > peak) peak = a; }
+  if (peak > 0) { const g = Math.min(0.9 / peak, 20); for (let i = 0; i < len; i++) all[i] *= g; } // zachte stemmen versterken
+  enqueue(encodeWav(downsample(all, ctx.sampleRate)));
 }
-function flush() {
-  const ms = segLen / ctx.sampleRate * 1000;
-  if (speechMs >= MIN_SPEECH_MS) {
-    const all = new Float32Array(segLen); let o = 0;
-    for (const c of segment) { all.set(c, o); o += c.length; }
-    enqueue(encodeWav(downsample(all, ctx.sampleRate)));
-  }
-  segment = []; segLen = 0; speaking = false; silentMs = 0; speechMs = 0;
-  dot.classList.remove('speech');
-}
+
 function onAudio(e) {
-  const input = e.inputBuffer.getChannelData(0);
-  const chunk = new Float32Array(input);
-  let sum = 0; for (let i = 0; i < chunk.length; i++) sum += chunk[i] * chunk[i];
-  const rms = Math.sqrt(sum / chunk.length);
-  const ms = chunk.length / ctx.sampleRate * 1000;
-  const loud = rms > threshold();
+  const d = new Float32Array(e.inputBuffer.getChannelData(0));
+  let sum = 0; for (let i = 0; i < d.length; i++) sum += d[i] * d[i];
+  const r = Math.sqrt(sum / d.length), fm = FRAME_MS();
+  // achtergrondniveau volgen (zakt snel, stijgt langzaam)
+  noise = r < noise ? noise * 0.9 + r * 0.1
+        : !isSpeech(r) ? noise * 0.99 + r * 0.01
+        : noise * 0.9998 + r * 0.0002;
+  frames.push({ d, r });
 
-  // geluidsniveau-indicatie op de knop
-  micBtn.style.boxShadow = '0 0 0 ' + Math.min(18, rms * 400).toFixed(1) + 'px rgba(255,77,94,.35)';
+  const speech = isSpeech(r);
+  dot.classList.toggle('speech', speech);
+  micBtn.style.boxShadow = '0 0 0 ' + Math.min(18, r * 500).toFixed(1) + 'px rgba(255,77,94,.35)';
+  if (speech) { speechMs += fm; trailSil = 0; } else trailSil += fm;
 
-  if (!speaking) {
-    if (!loud) noise = noise * 0.95 + rms * 0.05; // achtergrondgeluid leren
-    pre.push(chunk); preLen += chunk.length;
-    while (preLen > ctx.sampleRate * PRE_MS / 1000 && pre.length > 1) preLen -= pre.shift().length;
-    if (loud) {
-      speaking = true; dot.classList.add('speech');
-      segment = pre.splice(0); segLen = preLen; preLen = 0;
-      speechMs = ms; silentMs = 0;
-    }
+  const dur = frames.length * fm;
+  if (speechMs === 0) {                              // nog niemand aan het praten: alleen ~0,5 s bewaren
+    while (frames.length * fm > 500) frames.shift();
     return;
   }
-  segment.push(chunk); segLen += chunk.length;
-  if (loud) { speechMs += ms; silentMs = 0; } else silentMs += ms;
-  const segMs = segLen / ctx.sampleRate * 1000;
-  if (silentMs >= END_SILENCE_MS || segMs >= MAX_SEG_MS) flush();
+  if (speechMs >= 300 && trailSil >= 650) {          // zin afgerond
+    send(frames.length - Math.floor(250 / fm));
+    speechMs = 0; return;
+  }
+  if (dur >= 8000) {                                 // lang doorpraten: knip op het stilste moment
+    const from = frames.length - Math.floor(3000 / fm);
+    let best = frames.length - 1;
+    for (let i = from; i < frames.length; i++) if (frames[i].r < frames[best].r) best = i;
+    send(best + 1);
+    speechMs = 0; for (const f of frames) if (isSpeech(f.r)) speechMs += fm;
+  }
 }
 
 async function start() {
@@ -347,7 +345,7 @@ async function start() {
   try {
     ctx = new (window.AudioContext || window.webkitAudioContext)();
     await ctx.resume();
-    stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
+    stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: true, channelCount: 1 } });
   } catch (e) {
     setStatus(e.name === 'NotAllowedError' ? 'Microfoon geweigerd. Sta toe in Safari (aA-menu › Website-instellingen).' : 'Microfoon starten mislukt: ' + e.message);
     try { ctx && ctx.close(); } catch {}
@@ -355,6 +353,7 @@ async function start() {
   }
   src = ctx.createMediaStreamSource(stream);
   proc = ctx.createScriptProcessor(2048, 1, 1);
+  frames = []; speechMs = 0; trailSil = 0; noise = 0.003;
   proc.onaudioprocess = onAudio;
   const mute = ctx.createGain(); mute.gain.value = 0;
   src.connect(proc); proc.connect(mute); mute.connect(ctx.destination);
@@ -363,11 +362,11 @@ async function start() {
 }
 function stop() {
   running = false; micBtn.classList.remove('on'); micBtn.style.boxShadow = ''; dot.classList.remove('speech');
-  if (ctx && speaking) flush();
+  if (ctx && speechMs > 0) send(frames.length);
   try { proc && (proc.onaudioprocess = null, proc.disconnect()); src && src.disconnect(); } catch {}
   try { stream && stream.getTracks().forEach(t => t.stop()); } catch {}
   try { ctx && ctx.close(); } catch {}
-  ctx = stream = src = proc = null; pre.length = 0; preLen = 0;
+  ctx = stream = src = proc = null; frames = []; speechMs = 0;
   keepAwake(false);
   setStatus('Gestopt.');
 }
